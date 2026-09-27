@@ -1,708 +1,1005 @@
 import { useMemo, useState } from "react";
+
 import {
   Activity,
-  ArrowLeft,
-  Droplets,
-  Fan,
-  Gauge,
-  Snowflake,
-  Thermometer,
-  Waves,
-  Wind,
-  Zap,
+  Minus,
+  Plus,
+  Power,
 } from "lucide-react";
 
-interface Equipment {
+import { useEquipment } from "../hooks/useEquipment";
+import type { Equipment } from "../models/equipment";
+
+import EquipmentDetail from "./EquipmentDetail";
+
+
+/* =====================================================
+   TYPES
+===================================================== */
+
+interface DashboardAHU {
+
   id: string;
-  type: "CHILLER" | "AHU" | "PUMP";
-  name: string;
-  status: "RUN" | "STOP" | "FAULT";
+
+  status: "RUN" | "STOP";
+
+  supply: number;
+
+  returnAir: number;
+
+  humidity: number;
 
   power: number;
-  capacity: number;
-  capacityUnit: string;
 
-  supplyTemp?: number;
-  returnTemp?: number;
+  setTemperature: number;
 
-  humidity?: number;
-  flow?: number;
-
-  pressure?: number;
-  runtime?: number;
 }
 
-const equipmentData: Equipment[] = [
-  {
-  id: "CH-01",
-  type: "CHILLER",
-  name: "Water Cooled Chiller",
-  status: "RUN",
 
-  power: 134.4,
-  capacity: 134.4,
-  capacityUnit: "TR",
+interface EquipmentPageProps {
 
-  supplyTemp: 7.2,
-  returnTemp: 12.1,
+  ahu: DashboardAHU[];
 
-  flow: 420,
-  pressure: 1.82,
-  runtime: 8.4,
- },
-  {
-  id: "CH-02",
-  type: "CHILLER",
-  name: "Water Cooled Chiller",
-  status: "RUN",
+  onToggleAHU: (
+    id: string
+  ) => void;
 
-  power: 128.7,
-  capacity: 128.7,
-  capacityUnit: "TR",
+  onChangeAHUTemperature: (
+    id: string,
+    amount: number
+  ) => void;
 
-  supplyTemp: 7.4,
-  returnTemp: 12.3,
+  onUpdateAHU: (
+    id: string,
+    updates: {
+      status?: "RUN" | "STOP";
+      setTemperature?: number;
+    }
+  ) => void;
 
-  flow: 405,
-  pressure: 1.76,
-  runtime: 7.9,
- },
-  {
-  id: "AHU-01",
-  type: "AHU",
-  name: "Air Handling Unit",
-  status: "RUN",
+}
 
-  power: 3.2,
-  capacity: 3.2,
-  capacityUnit: "kW",
 
-  supplyTemp: 14.8,
-  returnTemp: 24.2,
+/* =====================================================
+   CONSTANTS
+===================================================== */
 
-  humidity: 55,
-  flow: 8200,
+const MIN_TEMPERATURE = 16;
 
-  pressure: 0.42,
-  runtime: 12.5,
- },
-  {
-  id: "AHU-02",
-  type: "AHU",
-  name: "Air Handling Unit",
-  status: "RUN",
+const MAX_TEMPERATURE = 30;
 
-  power: 3.5,
-  capacity: 3.5,
-  capacityUnit: "kW",
 
-  supplyTemp: 15.2,
-  returnTemp: 23.9,
+/* =====================================================
+   EQUIPMENT PAGE
+===================================================== */
 
-  humidity: 57,
-  flow: 8500,
+function EquipmentPage({
 
-  pressure: 0.45,
-  runtime: 11.8,
- },
-  {
-  id: "AHU-03",
-  type: "AHU",
-  name: "Air Handling Unit",
-  status: "RUN",
+  ahu,
 
-  power: 3.8,
-  capacity: 3.8,
-  capacityUnit: "kW",
+  onToggleAHU,
 
-  supplyTemp: 14.7,
-  returnTemp: 24.6,
+  onChangeAHUTemperature,
 
-  humidity: 53,
-  flow: 8800,
+  onUpdateAHU,
 
-  pressure: 0.48,
-  runtime: 13.2,
-},
-  {
-  id: "P-CHW-01",
-  type: "PUMP",
-  name: "Chilled Water Pump",
-  status: "RUN",
+}: EquipmentPageProps) {
 
-  power: 18.4,
-  capacity: 18.4,
-  capacityUnit: "kW",
 
-  flow: 380,
-  pressure: 2.15,
-  runtime: 9.7,
-},
-  {
-  id: "P-CHW-02",
-  type: "PUMP",
-  name: "Chilled Water Pump",
-  status: "STOP",
+  /* ===================================================
+     EQUIPMENT DATA
+  =================================================== */
 
-  power: 0,
-  capacity: 0,
-  capacityUnit: "kW",
+  const {
+    equipments,
+    setEquipments,
+  } = useEquipment();
 
-  flow: 0,
-  pressure: 0,
-  runtime: 0,
-},
-];
 
-function EquipmentPage() {
+  /* ===================================================
+     FILTER
+  =================================================== */
+
   const [filter, setFilter] = useState<
     "ALL" | "CHILLER" | "AHU" | "PUMP"
   >("ALL");
 
+
+  /* ===================================================
+     DETAIL
+  =================================================== */
+
   const [selectedEquipment, setSelectedEquipment] =
     useState<Equipment | null>(null);
 
-  const filteredEquipment = useMemo(() => {
-    if (filter === "ALL") {
-      return equipmentData;
+
+  /* ===================================================
+     MERGE DASHBOARD AHU STATE
+     
+     สำคัญ:
+     Equipment data อาจมี status/setTemperature
+     ของตัวเอง
+
+     แต่ AHU จริง ๆ ให้ยึดข้อมูลจาก App.tsx
+     ซึ่งเป็น source of truth
+  =================================================== */
+
+  const synchronizedEquipments = useMemo(() => {
+
+    return equipments.map((equipment) => {
+
+      if (equipment.type !== "AHU") {
+        return equipment;
+      }
+
+
+      const dashboardAHU =
+        ahu.find(
+          (unit) =>
+            unit.id === equipment.id
+        );
+
+
+      if (!dashboardAHU) {
+        return equipment;
+      }
+
+
+      return {
+        ...equipment,
+
+        status:
+          dashboardAHU.status,
+
+        setTemperature:
+          dashboardAHU.setTemperature,
+
+        supplyTemp:
+          dashboardAHU.supply,
+
+        returnTemp:
+          dashboardAHU.returnAir,
+
+        humidity:
+          dashboardAHU.humidity,
+
+        power:
+          dashboardAHU.power,
+
+      };
+
+    });
+
+  }, [
+    equipments,
+    ahu,
+  ]);
+
+
+  /* ===================================================
+     FILTERED EQUIPMENT
+  =================================================== */
+
+  const filteredEquipment =
+    useMemo(() => {
+
+      if (filter === "ALL") {
+        return synchronizedEquipments;
+      }
+
+
+      return synchronizedEquipments.filter(
+        (equipment: Equipment) =>
+          equipment.type === filter
+      );
+
+    }, [
+      filter,
+      synchronizedEquipments,
+    ]);
+
+
+  /* ===================================================
+     SUMMARY
+  =================================================== */
+
+  const totalEquipment =
+    synchronizedEquipments.length;
+
+
+  const runningEquipment =
+    synchronizedEquipments.filter(
+      (equipment) =>
+        equipment.status === "RUN"
+    ).length;
+
+
+  const stoppedEquipment =
+    synchronizedEquipments.filter(
+      (equipment) =>
+        equipment.status === "STOP"
+    ).length;
+
+
+  const faultEquipment =
+    synchronizedEquipments.filter(
+      (equipment) =>
+        equipment.status === "FAULT"
+    ).length;
+
+
+  /* ===================================================
+     UPDATE EQUIPMENT
+     
+     ใช้เมื่อ EquipmentDetail มีการเปลี่ยนค่า
+  =================================================== */
+
+  const updateEquipment = (
+    updatedEquipment: Equipment
+  ) => {
+
+
+    /* -----------------------------------------------
+       Update Equipment local state
+    ------------------------------------------------ */
+
+    setEquipments(
+      (currentEquipments) => {
+
+        return currentEquipments.map(
+          (equipment) => {
+
+            if (
+              equipment.id ===
+              updatedEquipment.id
+            ) {
+
+              return updatedEquipment;
+
+            }
+
+            return equipment;
+
+          }
+        );
+
+      }
+    );
+
+
+    /* -----------------------------------------------
+       Sync AHU กลับไป Dashboard
+    ------------------------------------------------ */
+
+    if (
+      updatedEquipment.type === "AHU"
+    ) {
+
+      const updates: {
+        status?: "RUN" | "STOP";
+        setTemperature?: number;
+      } = {};
+
+
+      if (
+        updatedEquipment.status === "RUN" ||
+        updatedEquipment.status === "STOP"
+      ) {
+
+        updates.status =
+          updatedEquipment.status;
+
+      }
+
+
+      if (
+        typeof updatedEquipment.setTemperature ===
+        "number"
+      ) {
+
+        updates.setTemperature =
+          updatedEquipment.setTemperature;
+
+      }
+
+
+      if (
+        updates.status !== undefined ||
+        updates.setTemperature !== undefined
+      ) {
+
+        onUpdateAHU(
+          updatedEquipment.id,
+          updates
+        );
+
+      }
+
     }
 
-    return equipmentData.filter(
-      (equipment) => equipment.type === filter
+
+    /* -----------------------------------------------
+       Update selected detail
+    ------------------------------------------------ */
+
+    setSelectedEquipment(
+      updatedEquipment
     );
-  }, [filter]);
 
-  const totalEquipment = equipmentData.length;
+  };
 
-  const runningEquipment = equipmentData.filter(
-    (equipment) => equipment.status === "RUN"
-  ).length;
 
-  const stoppedEquipment = equipmentData.filter(
-    (equipment) => equipment.status === "STOP"
-  ).length;
-
-  const faultEquipment = equipmentData.filter(
-    (equipment) => equipment.status === "FAULT"
-  ).length;
-
-  /*
-   * ==========================================
-   * EQUIPMENT DETAIL
-   * ==========================================
-   */
+  /* ===================================================
+     DETAIL PAGE
+  =================================================== */
 
   if (selectedEquipment) {
+
     return (
-      <div className="equipment-page">
 
-        <button
-          className="back-button"
-          onClick={() => setSelectedEquipment(null)}
-        >
-          <ArrowLeft size={16} />
-          BACK TO EQUIPMENT
-        </button>
+      <EquipmentDetail
 
-        <div className="detail-header">
+        equipment={
+          selectedEquipment
+        }
 
-          <div>
-            <div className="detail-type">
-              {selectedEquipment.type}
-            </div>
+        onBack={() => {
 
-            <h1 className="equipment-title">
-              {selectedEquipment.id}
-            </h1>
+          setSelectedEquipment(
+            null
+          );
 
-            <p className="equipment-subtitle">
-              {selectedEquipment.name}
-            </p>
-          </div>
+        }}
 
-          <div
-            className={`equipment-status ${
-              selectedEquipment.status === "RUN"
-                ? "status-run"
-                : selectedEquipment.status === "STOP"
-                ? "status-stop"
-                : "status-fault"
-            }`}
-          >
-            <span className="equipment-status-dot" />
-            {selectedEquipment.status}
-          </div>
+        onUpdate={
+          updateEquipment
+        }
 
-        </div>
+      />
 
-        {/* STATUS */}
-
-        <div className="detail-status-card">
-
-          <div>
-            <span className="detail-label">
-              CURRENT STATUS
-            </span>
-
-            <strong>
-              {selectedEquipment.status === "RUN"
-                ? "SYSTEM RUNNING"
-                : selectedEquipment.status === "STOP"
-                ? "SYSTEM STOPPED"
-                : "SYSTEM FAULT"}
-            </strong>
-          </div>
-
-          <Activity size={32} />
-
-        </div>
-
-        {/* MAIN METRICS */}
-
-        <div className="detail-metrics">
-
-          <DetailMetric
-            icon={<Zap />}
-            title="POWER"
-            value={`${selectedEquipment.power.toFixed(1)} kW`}
-          />
-
-          <DetailMetric
-            icon={<Gauge />}
-            title="CAPACITY"
-            value={`${selectedEquipment.capacity.toFixed(1)} ${
-              selectedEquipment.capacityUnit
-            }`}
-          />
-
-          {selectedEquipment.supplyTemp !== undefined && (
-            <DetailMetric
-              icon={<Thermometer />}
-              title="SUPPLY TEMPERATURE"
-              value={`${selectedEquipment.supplyTemp.toFixed(1)} °C`}
-            />
-          )}
-
-          {selectedEquipment.returnTemp !== undefined && (
-            <DetailMetric
-              icon={<Thermometer />}
-              title="RETURN TEMPERATURE"
-              value={`${selectedEquipment.returnTemp.toFixed(1)} °C`}
-            />
-          )}
-
-          {selectedEquipment.humidity !== undefined && (
-            <DetailMetric
-              icon={<Droplets />}
-              title="HUMIDITY"
-              value={`${selectedEquipment.humidity}%`}
-            />
-          )}
-
-          {selectedEquipment.flow !== undefined && (
-            <DetailMetric
-              icon={
-                selectedEquipment.type === "AHU"
-                  ? <Wind />
-                  : <Waves />
-              }
-              title="FLOW"
-              value={`${selectedEquipment.flow.toLocaleString()} ${
-                selectedEquipment.type === "AHU"
-                  ? "m³/h"
-                  : "m³/h"
-              }`}
-            />
-          )}
-            {selectedEquipment.pressure !== undefined && (
-             <DetailMetric
-                icon={<Gauge />}
-                title="PRESSURE"
-                 value={`${selectedEquipment.pressure.toFixed(2)} bar`}
-            />
-          )}
-
-            {selectedEquipment.runtime !== undefined && (
-            <DetailMetric
-                icon={<Activity />}
-                title="RUNTIME TODAY"
-                value={`${selectedEquipment.runtime.toFixed(1)} h`}
-             />
-        )}
-
-        </div>
-
-        {/* TREND */}
-        <div className="detail-alarm">
-
-  <div>
-    <span className="detail-label">
-      ALARM STATUS
-    </span>
-
-    <strong>
-      NORMAL
-    </strong>
-  </div>
-
-  <div className="alarm-normal">
-    <span />
-    NO ACTIVE ALARM
-  </div>
-
-</div>
-        <div className="panel detail-trend">
-
-          <div className="panel-header">
-
-            <div>
-              <h2>{selectedEquipment.id} Trend</h2>
-
-              <p>Power and operating condition trend</p>
-              
-            </div>
-
-            <div className="live-badge">
-              <span />
-              LIVE
-            </div>
-
-          </div>
-
-          <div className="fake-trend">
-
-            <div className="trend-line">
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-            </div>
-
-          </div>
-
-        </div>
-
-      </div>
     );
+
   }
 
-  /*
-   * ==========================================
-   * EQUIPMENT LIST
-   * ==========================================
-   */
+
+  /* ===================================================
+     PAGE
+  =================================================== */
 
   return (
+
     <div className="equipment-page">
 
-      {/* HEADER */}
+
+      {/* =================================================
+          HEADER
+      ================================================= */}
 
       <header className="equipment-header">
 
         <div>
 
           <div className="brand">
+
             <Activity />
+
             SMART BUILDING
+
           </div>
 
+
           <h1 className="equipment-title">
+
             Equipment Monitoring
+
           </h1>
 
+
           <p className="equipment-subtitle">
+
             Real-time monitoring of building mechanical equipment
+
           </p>
 
         </div>
 
-        <div className="equipment-online">
-          <span />
-          SYSTEM ONLINE
-        </div>
-
       </header>
 
-      {/* FILTER */}
+
+      {/* =================================================
+          FILTER
+      ================================================= */}
 
       <div className="equipment-toolbar">
 
         <div className="equipment-filters">
 
+
           {(
-            ["ALL", "CHILLER", "AHU", "PUMP"] as const
-          ).map((item) => (
+            [
+              "ALL",
+              "CHILLER",
+              "AHU",
+              "PUMP",
+            ] as const
+          ).map(
+            (item) => (
 
-            <button
-              key={item}
-              className={`equipment-filter ${
-                filter === item ? "active" : ""
-              }`}
-              onClick={() => setFilter(item)}
-            >
-              {item}
-            </button>
+              <button
 
-          ))}
+                key={item}
+
+                type="button"
+
+                className={
+                  `equipment-filter ${
+                    filter === item
+                      ? "active"
+                      : ""
+                  }`
+                }
+
+                onClick={() => {
+
+                  setFilter(item);
+
+                }}
+
+              >
+
+                {item}
+
+              </button>
+
+            )
+          )}
+
 
         </div>
 
       </div>
 
-      {/* SUMMARY */}
+
+      {/* =================================================
+          SUMMARY
+      ================================================= */}
 
       <section className="equipment-summary">
 
+
         <SummaryCard
+
           label="TOTAL EQUIPMENT"
-          value={totalEquipment}
+
+          value={
+            totalEquipment
+          }
+
           status="TOTAL UNITS"
+
         />
 
+
         <SummaryCard
+
           label="RUNNING"
-          value={runningEquipment}
+
+          value={
+            runningEquipment
+          }
+
           status="ONLINE"
+
         />
 
+
         <SummaryCard
+
           label="STOPPED"
-          value={stoppedEquipment}
+
+          value={
+            stoppedEquipment
+          }
+
           status="STANDBY"
+
         />
 
+
         <SummaryCard
+
           label="FAULT"
-          value={faultEquipment}
+
+          value={
+            faultEquipment
+          }
+
           status={
             faultEquipment === 0
               ? "NORMAL"
               : "CHECK REQUIRED"
           }
+
         />
+
 
       </section>
 
-      {/* EQUIPMENT GRID */}
+
+      {/* =================================================
+          EQUIPMENT GRID
+      ================================================= */}
 
       <section className="equipment-grid">
 
-        {filteredEquipment.map((equipment) => (
 
-          <EquipmentCard
-            key={equipment.id}
-            equipment={equipment}
-            onClick={() =>
-              setSelectedEquipment(equipment)
-            }
-          />
+        {filteredEquipment.map(
+          (equipment: Equipment) => (
 
-        ))}
+            <EquipmentCard
+
+              key={
+                equipment.id
+              }
+
+              equipment={
+                equipment
+              }
+
+              onClick={() => {
+
+                setSelectedEquipment(
+                  equipment
+                );
+
+              }}
+
+              onToggleAHU={
+                onToggleAHU
+              }
+
+              onChangeAHUTemperature={
+                onChangeAHUTemperature
+              }
+
+            />
+
+          )
+        )}
+
 
       </section>
 
+
     </div>
+
   );
+
 }
 
 
-/*
- * ==========================================
- * SUMMARY CARD
- * ==========================================
- */
+/* =====================================================
+   SUMMARY CARD
+===================================================== */
 
 function SummaryCard({
+
   label,
+
   value,
+
   status,
+
 }: {
+
   label: string;
+
   value: number;
+
   status: string;
+
 }) {
+
   return (
+
     <div className="summary-card">
 
+
       <div className="summary-label">
+
         {label}
+
       </div>
+
 
       <div className="summary-value">
+
         {value}
+
       </div>
+
 
       <div className="summary-status">
+
         {status}
+
       </div>
 
+
     </div>
+
   );
+
 }
 
 
-/*
- * ==========================================
- * EQUIPMENT CARD
- * ==========================================
- */
+/* =====================================================
+   EQUIPMENT CARD
+===================================================== */
 
 function EquipmentCard({
+
   equipment,
+
   onClick,
+
+  onToggleAHU,
+
+  onChangeAHUTemperature,
+
 }: {
+
   equipment: Equipment;
+
   onClick: () => void;
+
+  onToggleAHU: (
+    id: string
+  ) => void;
+
+  onChangeAHUTemperature: (
+    id: string,
+    amount: number
+  ) => void;
+
 }) {
+
+
+  const isAHU =
+    equipment.type === "AHU";
+
+
+  const setTemperature =
+    equipment.setTemperature ?? 24;
+
+
+  const isRunning =
+    equipment.status === "RUN";
+
+
+  const isFault =
+    equipment.status === "FAULT";
+
+
+  /* ===================================================
+     TEMPERATURE -1
+  =================================================== */
+
+  const handleDecreaseTemperature = (
+    event: React.MouseEvent
+  ) => {
+
+    event.stopPropagation();
+
+
+    if (!isAHU) {
+      return;
+    }
+
+
+    if (
+      setTemperature <=
+      MIN_TEMPERATURE
+    ) {
+
+      return;
+
+    }
+
+
+    onChangeAHUTemperature(
+      equipment.id,
+      -1
+    );
+
+  };
+
+
+  /* ===================================================
+     TEMPERATURE +1
+  =================================================== */
+
+  const handleIncreaseTemperature = (
+    event: React.MouseEvent
+  ) => {
+
+    event.stopPropagation();
+
+
+    if (!isAHU) {
+      return;
+    }
+
+
+    if (
+      setTemperature >=
+      MAX_TEMPERATURE
+    ) {
+
+      return;
+
+    }
+
+
+    onChangeAHUTemperature(
+      equipment.id,
+      1
+    );
+
+  };
+
+
+  /* ===================================================
+     AHU ON / OFF
+  =================================================== */
+
+  const handleToggleAHU = (
+    event: React.MouseEvent
+  ) => {
+
+    event.stopPropagation();
+
+
+    if (
+      !isAHU ||
+      isFault
+    ) {
+
+      return;
+
+    }
+
+
+    onToggleAHU(
+      equipment.id
+    );
+
+  };
+
+
+  /* ===================================================
+     CARD
+  =================================================== */
+
   return (
+
     <div className="equipment-card">
 
-      <div className="equipment-card-header">
 
-        <div className="equipment-icon">
-          {equipment.type === "CHILLER" && (
-            <Snowflake />
-          )}
+      {/* =================================================
+          CARD HEADER
+      ================================================= */}
 
-          {equipment.type === "AHU" && (
-            <Fan />
-          )}
+      <div className="equipment-card-top">
 
-          {equipment.type === "PUMP" && (
-            <Waves />
-          )}
+
+        <div className="equipment-name">
+
+          {equipment.id}
+
         </div>
+
 
         <div
-          className={`equipment-status ${
-            equipment.status === "RUN"
-              ? "status-run"
-              : equipment.status === "STOP"
-              ? "status-stop"
-              : "status-fault"
-          }`}
+          className={
+            `equipment-status ${
+              equipment.status.toLowerCase()
+            }`
+          }
         >
-          <span className="equipment-status-dot" />
+
+          <span />
+
           {equipment.status}
+
         </div>
 
+
       </div>
 
-      <div className="equipment-name">
-        {equipment.id}
-      </div>
+
+      {/* =================================================
+          EQUIPMENT TYPE
+      ================================================= */}
 
       <div className="equipment-type">
+
         {equipment.name}
+
       </div>
 
-      <div className="equipment-metrics">
 
-        <div className="equipment-metric">
+      {/* =================================================
+          AHU CONTROL
+      ================================================= */}
 
-          <div className="equipment-metric-label">
-            POWER
+      {isAHU && (
+
+        <div
+          className="ahu-card-control"
+
+          onClick={(event) => {
+
+            event.stopPropagation();
+
+          }}
+
+        >
+
+
+          {/* =============================================
+              TEMPERATURE LABEL
+          ============================================= */}
+
+          <div className="ahu-temperature-label">
+
+            SET TEMPERATURE
+
           </div>
 
-          <div className="equipment-metric-value">
-            {equipment.power.toFixed(1)} kW
+
+          {/* =============================================
+              TEMPERATURE CONTROL
+          ============================================= */}
+
+          <div className="ahu-temperature-control">
+
+
+            <button
+
+              type="button"
+
+              onClick={
+                handleDecreaseTemperature
+              }
+
+              disabled={
+                setTemperature <=
+                MIN_TEMPERATURE
+              }
+
+              aria-label={
+                `Decrease ${equipment.id} temperature`
+              }
+
+            >
+
+              <Minus size={17} />
+
+            </button>
+
+
+            <div className="ahu-temperature-value">
+
+              <strong>
+
+                {setTemperature} °C
+
+              </strong>
+
+            </div>
+
+
+            <button
+
+              type="button"
+
+              onClick={
+                handleIncreaseTemperature
+              }
+
+              disabled={
+                setTemperature >=
+                MAX_TEMPERATURE
+              }
+
+              aria-label={
+                `Increase ${equipment.id} temperature`
+              }
+
+            >
+
+              <Plus size={17} />
+
+            </button>
+
+
           </div>
+
+
+          {/* =============================================
+              POWER BUTTON
+          ============================================= */}
+
+          <button
+
+            type="button"
+
+            className={
+              isRunning
+                ? "ahu-power-button running"
+                : "ahu-power-button stop"
+            }
+
+            onClick={
+              handleToggleAHU
+            }
+
+            disabled={
+              isFault
+            }
+
+          >
+
+            <Power size={16} />
+
+
+            {isRunning
+
+              ? "TURN OFF AHU"
+
+              : "TURN ON AHU"
+
+            }
+
+          </button>
+
 
         </div>
 
-        <div className="equipment-metric">
+      )}
 
-          <div className="equipment-metric-label">
-            CAPACITY
-          </div>
 
-          <div className="equipment-metric-value">
-            {equipment.capacity.toFixed(1)}{" "}
-            {equipment.capacityUnit}
-          </div>
-
-        </div>
-
-        {equipment.supplyTemp !== undefined && (
-          <div className="equipment-metric">
-
-            <div className="equipment-metric-label">
-              SUPPLY
-            </div>
-
-            <div className="equipment-metric-value">
-              {equipment.supplyTemp.toFixed(1)} °C
-            </div>
-
-          </div>
-        )}
-
-        {equipment.returnTemp !== undefined && (
-          <div className="equipment-metric">
-
-            <div className="equipment-metric-label">
-              RETURN
-            </div>
-
-            <div className="equipment-metric-value">
-              {equipment.returnTemp.toFixed(1)} °C
-            </div>
-
-          </div>
-        )}
-
-      </div>
+      {/* =================================================
+          VIEW DETAILS
+      ================================================= */}
 
       <button
+
+        type="button"
+
         className="equipment-details"
-        onClick={onClick}
+
+        onClick={(event) => {
+
+          event.stopPropagation();
+
+          onClick();
+
+        }}
+
       >
+
         VIEW DETAILS →
+
       </button>
 
-    </div>
-  );
-}
-
-
-/*
- * ==========================================
- * DETAIL METRIC
- * ==========================================
- */
-
-function DetailMetric({
-  icon,
-  title,
-  value,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  value: string;
-}) {
-  return (
-    <div className="detail-metric">
-
-      <div className="detail-metric-icon">
-        {icon}
-      </div>
-
-      <div>
-        <div className="detail-metric-label">
-          {title}
-        </div>
-
-        <div className="detail-metric-value">
-          {value}
-        </div>
-      </div>
 
     </div>
+
   );
+
 }
+
 
 export default EquipmentPage;
